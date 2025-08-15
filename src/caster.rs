@@ -13,7 +13,7 @@ pub fn cast_ray(
     draw: bool
 ) -> f32 {
     let mut d = 0.0;
-    framebuffer.set_current_color(Color::WHITE);
+    framebuffer.set_current_color(Color::BLUEVIOLET);
 
     loop {
         let cos = d * a.cos();
@@ -34,7 +34,6 @@ pub fn cast_ray(
         if draw {
             framebuffer.set_pixel(x as u32, y as u32);
         }
-        framebuffer.set_pixel(x as u32 , y as u32);
 
         d += 1.0;
     }

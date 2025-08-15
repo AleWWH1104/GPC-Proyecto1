@@ -52,7 +52,7 @@ pub fn render_maze(
     }
 
     //draw player
-    framebuffer.set_current_color(Color::WHITE);
+    framebuffer.set_current_color(Color::GREEN  );
     let px = player.pos.x as u32;
     let py = player.pos.y as u32;
     framebuffer.set_pixel(px, py);
@@ -80,9 +80,12 @@ pub fn render_3D(
     for i in 0..num_rays{
         let current_ray = i as f32 / num_rays as f32; // current ray divided by total rays
         let a = (player.a - (player.fov / 2.0)) + (player.fov * current_ray);
-        let d = cast_ray(framebuffer, &maze, &player, block_size, a, false);
+        let angle_diff = a - player.a;
 
-        let stake_height = (hh / d) * 100.0;
+        let d = cast_ray(framebuffer, &maze, &player, block_size, a, false);
+        let correct_distance = d * angle_diff.cos() as f32;
+
+        let stake_height = (hh / correct_distance) * 100.0;
         let half_stake_height = stake_height /2.0;
         let stake_top = (hh - half_stake_height) as usize;
         let stake_bottom = (hh + half_stake_height) as usize;
