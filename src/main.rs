@@ -6,6 +6,7 @@ mod framebuffer;
 mod maze;
 mod player;
 mod caster;
+mod textures;
 
 use raylib::prelude::*;
 use std::thread;
@@ -13,8 +14,9 @@ use std::time::Duration;
 use framebuffer::Framebuffer;
 use maze::{Maze,load_maze};
 use player::{Player,process_events};
-use caster::cast_ray;
+use caster::{cast_ray, Intersect};
 use std::f32::consts::PI;
+use textures::TextureManager;
 
 fn draw_cell(
     framebuffer: &mut Framebuffer,
@@ -79,18 +81,26 @@ pub fn render_3D(
 
     for i in 0..num_rays{
         let current_ray = i as f32 / num_rays as f32; // current ray divided by total rays
-        let a = (player.a - (player.fov / 2.0)) + (player.fov * current_ray);
+        let a = (player.a - (player.fov / 2.0)) + (player.fov * current_ray) + player.fov.cos();
         let angle_diff = a - player.a;
 
-        let d = cast_ray(framebuffer, &maze, &player, block_size, a, false);
+        let intersect = cast_ray(framebuffer, &maze, &player, block_size, a, false);
+        let d = intersect.distance;
+        let c = intersect.impact;
         let correct_distance = d * angle_diff.cos() as f32;
-
+        
         let stake_height = (hh / correct_distance) * 100.0;
         let half_stake_height = stake_height /2.0;
         let stake_top = (hh - half_stake_height) as usize;
         let stake_bottom = (hh + half_stake_height) as usize;
 
         for y in stake_top..stake_bottom {
+            match c {
+                '+' => framebuffer.set_current_color(Color::BLUEVIOLET), 
+                '-' => framebuffer.set_current_color(Color::BLUE), 
+                '|' => framebuffer.set_current_color(Color::PURPLE), 
+                _ => framebuffer.set_current_color(Color::PINK), 
+            }
             framebuffer.set_pixel(i, y as u32);
         }
 
