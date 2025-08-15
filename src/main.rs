@@ -51,24 +51,48 @@ pub fn render_maze(
         }
     }
 
-    framebuffer.set_current_color(Color::WHITE);
-    
     //draw player
+    framebuffer.set_current_color(Color::WHITE);
     let px = player.pos.x as u32;
     let py = player.pos.y as u32;
     framebuffer.set_pixel(px, py);
-
-    // cast_ray(framebuffer, maze, player, block_size);
     
     // draw what the player sees
     let num_rays = 5;
     for i in 0..num_rays {
         let current_ray = i as f32 / num_rays as f32; // current ray divided by total rays
-        let a = player.a - (player.fov / 2.0) + (player.fov * current_ray);
-        cast_ray(framebuffer, &maze, &player, block_size);
+        let a = (player.a - (player.fov / 2.0)) + (player.fov * current_ray);
+        cast_ray(framebuffer, &maze, &player, block_size, a, true);
     }
 }
 
+pub fn render_3D(
+    framebuffer: &mut Framebuffer,
+    maze: &Maze,
+    block_size: usize,
+    player: &Player,
+){
+    let num_rays = framebuffer.width;
+    let hh = framebuffer.height as f32 /2.0;
+
+    framebuffer.set_current_color(Color::RED);
+
+    for i in 0..num_rays{
+        let current_ray = i as f32 / num_rays as f32; // current ray divided by total rays
+        let a = (player.a - (player.fov / 2.0)) + (player.fov * current_ray);
+        let d = cast_ray(framebuffer, &maze, &player, block_size, a, false);
+
+        let stake_height = (hh / d) * 100.0;
+        let half_stake_height = stake_height /2.0;
+        let stake_top = (hh - half_stake_height) as usize;
+        let stake_bottom = (hh + half_stake_height) as usize;
+
+        for y in stake_top..stake_bottom {
+            framebuffer.set_pixel(i, y as u32);
+        }
+
+    }
+}
 fn main() {
     let window_width = 1000;
     let window_height =700;
@@ -87,7 +111,7 @@ fn main() {
 
     // Load the maze once before the loop
     let maze = load_maze("maze.txt");
-    let mut player = Player{pos: Vector2::new(150.0,150.0), a: PI/2.0, fov:PI/3.0};
+    let mut player = Player{pos: Vector2::new(150.0,150.0), a: PI/3.0, fov:PI/2.0};
 
 
     while !window.window_should_close() {
@@ -97,12 +121,20 @@ fn main() {
         process_events(&window, &mut player, block_size, &maze);
 
         // 2. draw the maze, passing the maze and block size
-        render_maze(&mut framebuffer, &maze, block_size, &mut player);
+        let mut mode = "3D";
+
+        if window.is_key_down(KeyboardKey::KEY_M){
+            mode ="2D";
+        }
+
+        if mode =="2D"{
+            render_maze(&mut framebuffer, &maze, block_size, &mut player);
+        } else {
+            render_3D(&mut framebuffer, &maze, block_size, &mut player);
+        }
 
         // 3. swap buffers
         framebuffer.swap_buffers(&mut window, &raylib_thread);
-
-        thread::sleep(Duration::from_millis(16));
     }
 
 }

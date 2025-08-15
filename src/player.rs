@@ -11,7 +11,7 @@ pub struct Player {
 
 pub fn process_events(window: &RaylibHandle, player: &mut Player, block_size: usize, maze: &Maze) {
     const MOVE_SPEED: f32 = 10.0;
-    const ROTATION_SPEED: f32 = PI / 5.0;
+    const ROTATION_SPEED: f32 = PI / 20.0;
 
     if window.is_key_down(KeyboardKey::KEY_LEFT) {
         player.a -= ROTATION_SPEED; 

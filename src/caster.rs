@@ -1,17 +1,23 @@
 use raylib::color::Color;
 
 use crate::framebuffer::Framebuffer;
-use crate::player::Player;
+use crate::player::{self, Player};
 use crate::maze::Maze;
 
-pub fn cast_ray(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player, block_size: usize) {
+pub fn cast_ray(
+    framebuffer: &mut Framebuffer, 
+    maze: &Maze, 
+    player: &Player, 
+    block_size: usize, 
+    a: f32, 
+    draw: bool
+) -> f32 {
     let mut d = 0.0;
-
-    framebuffer.set_current_color(Color::WHITESMOKE);
+    framebuffer.set_current_color(Color::WHITE);
 
     loop {
-        let cos = d * player.a.cos();
-        let sin = d * player.a.sin();
+        let cos = d * a.cos();
+        let sin = d * a.sin();
         let x = (player.pos.x + cos) as usize;
         let y = (player.pos.y + sin) as usize;
 
@@ -25,8 +31,12 @@ pub fn cast_ray(framebuffer: &mut Framebuffer, maze: &Maze, player: &Player, blo
             break;
         }
 
+        if draw {
+            framebuffer.set_pixel(x as u32, y as u32);
+        }
         framebuffer.set_pixel(x as u32 , y as u32);
 
-        d += 10.0;
+        d += 1.0;
     }
+    d
 }
