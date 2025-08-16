@@ -20,6 +20,7 @@ impl TextureManager {
             ('/', "assets/runas.png"),
             ('g', "assets/gema.png"),
             ('#', "assets/hiedra.png"), 
+            ('x', "assets/enemy.png"),
         ];
 
         for (ch, path) in texture_files {

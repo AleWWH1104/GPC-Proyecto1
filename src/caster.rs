@@ -7,6 +7,7 @@ use crate::maze::Maze;
 pub struct Intersect {
     pub distance: f32,
     pub impact: char,
+    pub tx: usize,
 }
 
 pub fn cast_ray(
@@ -33,9 +34,18 @@ pub fn cast_ray(
         // if the current item is not a space,
         // we have hit a wall and we stop
         if maze[j][i] != ' ' {
+            let hitx = x - i * block_size;
+            let hity  = y - j * block_size;
+            let mut maxhit = hity;
+
+            if 1< hitx && hitx < block_size - 1 {
+                maxhit= hitx;
+            }
+            let x = ((maxhit as f32 * 128.0) / block_size as f32) as usize;
             return Intersect {
                 distance: d,
                 impact: maze[j][i],
+                tx: x,
             }; 
         }
 
