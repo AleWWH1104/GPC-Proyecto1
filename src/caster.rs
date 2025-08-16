@@ -18,41 +18,89 @@ pub fn cast_ray(
     a: f32, 
     draw: bool
 ) -> Intersect {
-    let mut d = 0.0;
-    framebuffer.set_current_color(Color::BLUEVIOLET);
-
-    loop {
-        let cos = d * a.cos();
-        let sin = d * a.sin();
-        let x = (player.pos.x + cos) as usize;
-        let y = (player.pos.y + sin) as usize;
-
-        // convert pixels to a position in the maze
-        let i = x  / block_size;
-        let j = y / block_size;
-
-        // if the current item is not a space,
-        // we have hit a wall and we stop
-        if maze[j][i] != ' ' {
-            let hitx = x - i * block_size;
-            let hity  = y - j * block_size;
-            let mut maxhit = hity;
-
-            if 1< hitx && hitx < block_size - 1 {
-                maxhit= hitx;
+    let dx = a.cos();
+    let dy = a.sin();
+    
+    // Posición actual en coordenadas del mapa
+    let mut map_x = (player.pos.x / block_size as f32) as i32;
+    let mut map_y = (player.pos.y / block_size as f32) as i32;
+    
+    // Distancia entre intersecciones consecutivas
+    let delta_dist_x = if dx == 0.0 { 1e30 } else { (1.0 / dx).abs() };
+    let delta_dist_y = if dy == 0.0 { 1e30 } else { (1.0 / dy).abs() };
+    
+    // Calcular step y side_dist inicial
+    let (mut side_dist_x, step_x) = if dx < 0.0 {
+        let step_x = -1;
+        let side_dist_x = (player.pos.x / block_size as f32 - map_x as f32) * delta_dist_x;
+        (side_dist_x, step_x)
+    } else {
+        let step_x = 1;
+        let side_dist_x = (map_x as f32 + 1.0 - player.pos.x / block_size as f32) * delta_dist_x;
+        (side_dist_x, step_x)
+    };
+    
+    let (mut side_dist_y, step_y) = if dy < 0.0 {
+        let step_y = -1;
+        let side_dist_y = (player.pos.y / block_size as f32 - map_y as f32) * delta_dist_y;
+        (side_dist_y, step_y)
+    } else {
+        let step_y = 1;
+        let side_dist_y = (map_y as f32 + 1.0 - player.pos.y / block_size as f32) * delta_dist_y;
+        (side_dist_y, step_y)
+    };
+    
+    let mut hit = false;
+    let mut side = false; // false si es pared NS, true si es pared EW
+    let mut wall_type = ' ';
+    
+    // DDA - Solo salta de cuadrícula en cuadrícula
+    while !hit {
+        if side_dist_x < side_dist_y {
+            side_dist_x += delta_dist_x;
+            map_x += step_x;
+            side = false;
+        } else {
+            side_dist_y += delta_dist_y;
+            map_y += step_y;
+            side = true;
+        }
+        
+        // Verificar límites y colisión
+        if map_y >= 0 && map_y < maze.len() as i32 && 
+           map_x >= 0 && map_x < maze[0].len() as i32 {
+            wall_type = maze[map_y as usize][map_x as usize];
+            if wall_type != ' ' {
+                hit = true;
             }
-            let x = ((maxhit as f32 * 128.0) / block_size as f32) as usize;
-            return Intersect {
-                distance: d,
-                impact: maze[j][i],
-                tx: x,
-            }; 
+        } else {
+            hit = true;
+            wall_type = '#'; // Pared por defecto fuera de límites
         }
-
-        if draw {
-            framebuffer.set_pixel(x as u32, y as u32);
-        }
-
-        d += 1.0;
+    }
+    
+    // Calcular distancia perpendicular
+    let perp_wall_dist = if !side {
+        (map_x as f32 - player.pos.x / block_size as f32 + (1.0 - step_x as f32) / 2.0) / dx
+    } else {
+        (map_y as f32 - player.pos.y / block_size as f32 + (1.0 - step_y as f32) / 2.0) / dy
+    };
+    
+    let distance = perp_wall_dist * block_size as f32;
+    
+    // Calcular coordenada de textura
+    let wall_x = if !side {
+        player.pos.y + perp_wall_dist * dy
+    } else {
+        player.pos.x + perp_wall_dist * dx
+    };
+    
+    let wall_x = wall_x - wall_x.floor();
+    let tx = (wall_x * 128.0) as usize;
+    
+    Intersect {
+        distance,
+        impact: wall_type,
+        tx: tx.min(127),
     }
 }

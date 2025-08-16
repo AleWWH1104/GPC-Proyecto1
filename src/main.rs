@@ -1,4 +1,3 @@
-// main.rs
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
@@ -10,8 +9,9 @@ mod textures;
 mod enemy;
 
 use raylib::prelude::*;
+use raylib::core::audio::{ Sound, RaylibAudio };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use framebuffer::Framebuffer;
 use maze::{Maze,load_maze};
 use player::{Player,process_events};
@@ -19,6 +19,7 @@ use caster::{cast_ray, Intersect};
 use std::f32::consts::PI;
 use textures::TextureManager;
 use enemy::Enemy;
+
 
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
 
@@ -44,7 +45,7 @@ fn draw_sprite(
     let sprite_d = ((player.pos.x - enemy.pos.x).powi(2) + (player.pos.y - enemy.pos.y).powi(2)).sqrt();
 
     // near plane           far plane
-    if sprite_d < 50.0 || sprite_d > 1000.0 {
+    if sprite_d < 50.0 || sprite_d > 800.0 {
         return;
     }
 
@@ -86,7 +87,7 @@ fn draw_cell(
         return;
     }
 
-    framebuffer.set_current_color(Color::BLUEVIOLET);
+    framebuffer.set_current_color(Color::new(48, 35, 61, 255));
 
     for x in xo..xo + block_size {
         for y in yo..yo + block_size {
@@ -117,7 +118,7 @@ pub fn render_maze(
     framebuffer.set_pixel(px, py);
     
     // draw what the player sees
-    let num_rays = 5;
+    let num_rays = 3;
     for i in 0..num_rays {
         let current_ray = i as f32 / num_rays as f32; // current ray divided by total rays
         let a = (player.a - (player.fov / 2.0)) + (player.fov * current_ray);
@@ -135,32 +136,47 @@ pub fn render_3D(
     let num_rays = framebuffer.width;
     let hh = framebuffer.height as f32 /2.0;
 
-    framebuffer.set_current_color(Color::WHITE);
+    let fov_half = player.fov / 2.0;
+    let fov_step = player.fov / num_rays as f32;
 
     for i in 0..num_rays{
-        let current_ray = i as f32 / num_rays as f32; // current ray divided by total rays
-        let a = (player.a - (player.fov / 2.0)) + (player.fov * current_ray) + player.fov.cos();
+        let a = player.a - fov_half + (i as f32 * fov_step);
         let angle_diff = a - player.a;
 
-        let intersect = cast_ray(framebuffer, &maze, &player, block_size, a, false);
+        let intersect = cast_ray(framebuffer, maze, player, block_size, a, false);
         let d = intersect.distance;
         let c = intersect.impact;
-        let correct_distance = d * angle_diff.cos() as f32;
+        
+        // Corregir distancia para evitar efecto "fish-eye"
+        let correct_distance = d * angle_diff.cos();
         
         let stake_height = (hh / correct_distance) * 100.0;
-        let half_stake_height = stake_height /2.0;
-        let stake_top = (hh - half_stake_height) as usize;
-        let stake_bottom = (hh + half_stake_height) as usize;
+        let half_stake_height = stake_height / 2.0;
+        let stake_top = (hh - half_stake_height).max(0.0) as u32;
+        let stake_bottom = (hh + half_stake_height).min(framebuffer.height as f32) as u32;
 
-        for y in stake_top..stake_bottom {
-            let tx = intersect.tx;
-            let ty = ((y as f32 - stake_top as f32) / (stake_bottom as f32 - stake_top as f32)) * 128.0;
-            let color = texture_cache.get_pixel_color(c, tx as u32, ty as u32);
+        let tx = intersect.tx as u32;
+        let height_diff = stake_bottom - stake_top;
 
-            framebuffer.set_current_color(color);
-            framebuffer.set_pixel(i, y as u32);
+        // OPTIMIZACIÓN: Acceso directo al buffer
+        if height_diff > 0 {
+            let ty_step = 128.0 / height_diff as f32;
+            let mut ty = 0.0;
+            
+            let base_idx = i as usize;
+            
+            for y in stake_top..stake_bottom {
+                let color = texture_cache.get_pixel_color(c, tx, ty as u32);
+                let idx = (y * framebuffer.width) as usize + base_idx;
+                
+                // Verificación de bounds una sola vez
+                if idx < framebuffer.color_buffer.len() {
+                    framebuffer.color_buffer[idx] = color;
+                }
+                
+                ty += ty_step;
+            }
         }
-
     }
 }
 
@@ -170,7 +186,7 @@ fn render_enemies(
     texture_cache: &TextureManager,
 ) {
     let enemies = vec![
-        Enemy::new(250.0, 250.0, 'e'),
+        Enemy::new(250.0, 250.0, 'x'),
     ];
 
     for enemy in enemies {
@@ -179,18 +195,30 @@ fn render_enemies(
 }
 
 fn main() {
-    let window_width = 1200;
+    let window_width = 900;
     let window_height =800;
-    let block_size = 80;
+    let block_size = 65;
 
     let (mut window, raylib_thread) = raylib::init()
         .size(window_width, window_height)
-        .title("Raycaster Example")
-        .log_level(TraceLogLevel::LOG_WARNING)
+        .title("Raycaster Project")
+        .vsync()
         .build();
 
+    window.set_target_fps(60);
+
+    let internal_width = 450;  
+    let internal_height = 400;
+
+    //Load Music once before the loop
+    let mut audio = RaylibAudio::init_audio_device();
+    let music_forest = Sound::load_sound("musicforest.mp3") .expect("No se pudo cargar la música");
+    
+    audio.play_sound(&music_forest);
+    audio.set_sound_volume(&music_forest, 0.5);
+
     let background_color = Color::BLACK;
-    let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32, background_color);
+    let mut framebuffer = Framebuffer::new(internal_width as u32, internal_height as u32, background_color);
 
     framebuffer.set_background_color(background_color);
 
@@ -203,30 +231,56 @@ fn main() {
     //Load textures
     let texture_cache = TextureManager::new(&mut window, &raylib_thread);
 
+    let sky_color = Color::new(15, 4, 36, 255);
+    let floor_color = Color::new(48, 35, 61, 255);
+
+    let mut frame_count = 0;
+    let mut last_time = std::time::Instant::now();
 
     while !window.window_should_close() {
-        // 1. clear framebuffer
+        
+        // Clear framebuffer
         framebuffer.clear();
 
+        //Procesar eventos
         process_events(&window, &mut player, block_size, &maze);
 
-        // 2. draw the maze, passing the maze and block size
-        let mut mode = "3D";
-
+        // Renderizar según el modo
         if window.is_key_down(KeyboardKey::KEY_M){
-            mode ="2D";
-        }
-
-        if mode =="2D"{
             render_maze(&mut framebuffer, &maze, block_size, &player);
         } else {
+            let half_height = internal_height / 2;
+            let half_size = (half_height * internal_width) as usize;
+
+            if half_size <= framebuffer.color_buffer.len() {
+                //Cielo
+                framebuffer.color_buffer[0..half_size].fill(sky_color);
+                // Piso 
+                if half_size < framebuffer.color_buffer.len() {
+                    framebuffer.color_buffer[half_size..].fill(floor_color);
+                }
+            }
+
+            //Renderizar
             render_3D(&mut framebuffer, &maze, block_size, &player, &texture_cache );
+            //render_enemies(&mut framebuffer, &player, &texture_cache);
         }
 
-        // render_enemies(&mut framebuffer, &player, &texture_cache);
-
-        // 3. swap buffers
+        // Swap buffers
         framebuffer.swap_buffers(&mut window, &raylib_thread);
-    }
+        
 
+        frame_count += 1;
+        if last_time.elapsed().as_secs() >= 1 {
+            println!("FPS: {}", frame_count);
+            frame_count = 0;
+            last_time = std::time::Instant::now();
+        }
+
+        {
+            let mut d = window.begin_drawing(&raylib_thread);
+            d.draw_fps(10, 10); // Posición en esquina superior izquierda
+        }
+
+    }
 }

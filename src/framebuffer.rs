@@ -1,15 +1,18 @@
 use raylib::prelude::*;
+
 pub struct Framebuffer {
     pub width: u32,
     pub height: u32,
-    pub color_buffer: Image,
+    pub color_buffer: Vec<Color>,
     background_color: Color,
     current_color: Color,
 }
 
 impl Framebuffer {
     pub fn new(width: u32, height: u32, background_color: Color) -> Self {
-        let color_buffer = Image::gen_image_color(width as i32, height as i32, background_color);
+        let buffer_size = (width * height) as usize;
+        let color_buffer = vec![background_color; buffer_size];
+        
         Framebuffer {
             width,
             height,
@@ -20,12 +23,26 @@ impl Framebuffer {
     }
 
     pub fn clear(&mut self) {
-        self.color_buffer = Image::gen_image_color(self.width as i32, self.height as i32, self.background_color);
+        // Optimización: usar fill es mucho más rápido
+        self.color_buffer.fill(self.background_color);
+    }
+
+    #[inline(always)]
+    pub fn set_pixel_fast(&mut self, x: u32, y: u32, color: Color) {
+        if x < self.width && y < self.height {
+            unsafe {
+                let index = (y * self.width + x) as usize;
+                *self.color_buffer.get_unchecked_mut(index) = color;
+            }
+        }
     }
 
     pub fn set_pixel(&mut self, x: u32, y: u32) {
-        if x >= 0 && x < self.width && y >= 0 && y < self.height {
-            Image::draw_pixel(&mut self.color_buffer, x as i32, y as i32, self.current_color);
+        if x < self.width && y < self.height {
+            let index = (y * self.width + x) as usize;
+            if index < self.color_buffer.len() {
+                self.color_buffer[index] = self.current_color;
+            }
         }
     }
 
@@ -37,41 +54,66 @@ impl Framebuffer {
         self.current_color = color;
     }
     
-    pub fn swap_buffers(&self, window: &mut RaylibHandle, raylib_thread: &RaylibThread) {
-        if let Ok(texture) = window.load_texture_from_image(raylib_thread, &self.color_buffer) {
-            let screen_width = window.get_screen_width() as f32;
-            let screen_height = window.get_screen_height() as f32;
-    
-            let mut rendering = window.begin_drawing(raylib_thread);
-            rendering.clear_background(self.background_color);
+    pub fn swap_buffers(&mut self, window: &mut RaylibHandle, raylib_thread: &RaylibThread) {
+        let screen_width = window.get_screen_width() as f32;
+        let screen_height = window.get_screen_height() as f32;
+        
+        // Calcular escala una sola vez
+        let scale_x = screen_width / self.width as f32;
+        let scale_y = screen_height / self.height as f32;
+        let scale = f32::min(scale_x, scale_y);
+        
+        let scaled_width = self.width as f32 * scale;
+        let scaled_height = self.height as f32 * scale;
+        let offset_x = (screen_width - scaled_width) / 2.0;
+        let offset_y = (screen_height - scaled_height) / 2.0;
 
+        let mut rendering = window.begin_drawing(raylib_thread);
+        rendering.clear_background(self.background_color);
 
-            let scale_x = screen_width / self.width as f32;
-            let scale_y = screen_height / self.height as f32;
-            let scale = f32::min(scale_x, scale_y);
-
-            let scaled_width = self.width as f32 * scale;
-            let scaled_height = self.height as f32 * scale;
-
-            let offset_x = (screen_width - scaled_width) / 2.0;
-            let offset_y = (screen_height - scaled_height) / 2.0;
-
-            rendering.draw_texture_pro(
-                &texture,
-                Rectangle::new(0.0, 0.0, self.width as f32, self.height as f32), 
-                Rectangle::new(offset_x, offset_y, scaled_width, scaled_height),
-                Vector2::zero(),
-                0.0,
-                Color::WHITE,
-            );
-        }
-    }
-    
-    pub fn get_color(&mut self, x: u32, y: u32) -> Color {
-        if x >= 0 && x < self.width && y >= 0 && y < self.height {
-            self.color_buffer.get_color(x as i32, y as i32)
+        // Dibujar solo píxeles que han cambiado
+        // o usar rectángulos en lugar de píxeles individuales
+        
+        if scale >= 2.0 {
+            // Si la escala es >= 2, usar rectángulos
+            let pixel_size = scale as i32;
+            
+            for y in 0..self.height {
+                for x in 0..self.width {
+                    let index = (y * self.width + x) as usize;
+                    if index < self.color_buffer.len() {
+                        let color = self.color_buffer[index];
+                        if color != self.background_color { // Solo dibujar píxeles no vacíos
+                            let screen_x = offset_x + (x as f32 * scale);
+                            let screen_y = offset_y + (y as f32 * scale);
+                            
+                            rendering.draw_rectangle(
+                                screen_x as i32,
+                                screen_y as i32,
+                                pixel_size,
+                                pixel_size,
+                                color
+                            );
+                        }
+                    }
+                }
+            }
         } else {
-            Color::BLACK
+            // Si la escala es pequeña, usar píxeles
+            for y in 0..self.height {
+                for x in 0..self.width {
+                    let index = (y * self.width + x) as usize;
+                    if index < self.color_buffer.len() {
+                        let color = self.color_buffer[index];
+                        if color != self.background_color {
+                            let screen_x = offset_x + (x as f32 * scale);
+                            let screen_y = offset_y + (y as f32 * scale);
+                            
+                            rendering.draw_pixel(screen_x as i32, screen_y as i32, color);
+                        }
+                    }
+                }
+            }
         }
     }
 }
