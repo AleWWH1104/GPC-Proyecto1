@@ -19,9 +19,11 @@ use caster::{cast_ray, Intersect};
 use std::f32::consts::PI;
 use textures::TextureManager;
 use enemy::Enemy;
+use raylib::ffi::TraceLogLevel;
 
 
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
+
 
 fn draw_sprite(
     framebuffer: &mut Framebuffer,
@@ -29,8 +31,15 @@ fn draw_sprite(
     enemy: &Enemy,
     texture_manager: &TextureManager
 ) {
+    if !enemy.is_alive {
+        return;
+    }
+
+    // Calcular ángulo del sprite relativo al jugador
     let sprite_a = (enemy.pos.y - player.pos.y).atan2(enemy.pos.x - player.pos.x);
     let mut angle_diff = sprite_a - player.a;
+    
+    // Normalizar el ángulo
     while angle_diff > PI {
         angle_diff -= 2.0 * PI;
     }
@@ -38,39 +47,52 @@ fn draw_sprite(
         angle_diff += 2.0 * PI;
     }
 
+    // Verificar si el sprite está dentro del campo de visión
     if angle_diff.abs() > player.fov / 2.0 {
         return;
     }
 
+    // Calcular distancia al sprite
     let sprite_d = ((player.pos.x - enemy.pos.x).powi(2) + (player.pos.y - enemy.pos.y).powi(2)).sqrt();
 
-    // near plane           far plane
-    if sprite_d < 50.0 || sprite_d > 800.0 {
+    // Culling por distancia (plano cercano y lejano)
+    if sprite_d < 30.0 || sprite_d > 600.0 {
         return;
     }
 
     let screen_height = framebuffer.height as f32;
     let screen_width = framebuffer.width as f32;
 
+    // Calcular tamaño del sprite en pantalla
     let sprite_size = (screen_height / sprite_d) * 70.0;
+    
+    // Calcular posición X en pantalla
     let screen_x = ((angle_diff / player.fov) + 0.5) * screen_width;
 
-    let start_x = (screen_x - sprite_size / 2.0).max(0.0) as usize;
-    let start_y = (screen_height / 2.0 - sprite_size / 2.0).max(0.0) as usize;
-    let sprite_size_usize = sprite_size as usize;
-    let end_x = (start_x + sprite_size_usize).min(framebuffer.width as usize);
-    let end_y = (start_y + sprite_size_usize).min(framebuffer.height as usize);
+    // Calcular bounds del sprite
+    let start_x = (screen_x - sprite_size / 2.0).max(0.0) as i32;
+    let end_x = (screen_x + sprite_size / 2.0).min(screen_width) as i32;
+    let start_y = (screen_height / 2.0 - sprite_size / 2.0).max(0.0) as i32;
+    let end_y = (screen_height / 2.0 + sprite_size / 2.0).min(screen_height) as i32;
 
+    // Obtener coordenadas del frame actual
+    let (frame_x, frame_y, frame_width, frame_height) = enemy.get_frame_coords(128 * enemy.frame_count as u32);
+
+    // Dibujar el sprite
     for x in start_x..end_x {
         for y in start_y..end_y {
-            let tx = ((x - start_x) * 128 / sprite_size_usize) as u32;
-            let ty = ((y - start_y) * 128 / sprite_size_usize) as u32;
-
-            let color = texture_manager.get_pixel_color(enemy.texture_key, tx, ty);
+            // Mapear coordenadas de pantalla a coordenadas de textura
+            let tex_x = ((x - start_x) as f32 / (end_x - start_x) as f32) * frame_width as f32;
+            let tex_y = ((y - start_y) as f32 / (end_y - start_y) as f32) * frame_height as f32;
             
-            if color != TRANSPARENT_COLOR {
-                framebuffer.set_current_color(color);
-                framebuffer.set_pixel(x as u32, y as u32);
+            let final_tx = (frame_x as f32 + tex_x) as u32;
+            let final_ty = (frame_y as f32 + tex_y) as u32;
+
+            let color = texture_manager.get_pixel_color(enemy.texture_key, final_tx, final_ty);
+            
+            // Solo dibujar píxeles no transparentes
+            if color.a > 0 && color != TRANSPARENT_COLOR {
+                framebuffer.set_pixel_fast(x as u32, y as u32, color);
             }
         }
     }
@@ -166,7 +188,6 @@ pub fn render_3D(
         let tx = intersect.tx as u32;
         let height_diff = stake_bottom - stake_top;
 
-        // OPTIMIZACIÓN: Acceso directo al buffer
         if height_diff > 0 {
             let ty_step = 128.0 / height_diff as f32;
             let mut ty = 0.0;
@@ -191,12 +212,9 @@ pub fn render_3D(
 fn render_enemies(
     framebuffer: &mut Framebuffer,
     player: &Player,
+    enemies: &[Enemy],
     texture_cache: &TextureManager,
 ) {
-    let enemies = vec![
-        Enemy::new(250.0, 250.0, 'x'),
-    ];
-
     for enemy in enemies {
         draw_sprite(framebuffer, &player, &enemy, texture_cache);
     }
@@ -218,6 +236,7 @@ fn main() {
     let internal_width = 500;  
     let internal_height = 400;
 
+
     //Load Music once before the loop
     let mut audio = RaylibAudio::init_audio_device();
     let music_forest = Sound::load_sound("musicforest.mp3") .expect("No se pudo cargar la música");
@@ -232,7 +251,6 @@ fn main() {
     let mut fb_map = Framebuffer::new(130, 90, background_color);
     let map_block_size = 10; // Tamaño más pequeño para el mapa
 
-
     // Load the maze once before the loop
     let maze = load_maze("prueba.txt");
 
@@ -242,13 +260,29 @@ fn main() {
     //Load textures
     let texture_cache = TextureManager::new(&mut window, &raylib_thread);
 
+    //Crear enemigos
+    let mut enemies = vec![
+        Enemy::new(500.0, 100.0, 'e', 4), // Enemigo animado con 4 frames
+    ];
+
     let sky_color = Color::new(15, 4, 36, 255);
     let floor_color = Color::new(48, 35, 61, 255);
 
     let mut frame_count = 0;
     let mut last_time = std::time::Instant::now();
+    let mut last_frame_time = std::time::Instant::now();
 
     while !window.window_should_close() {
+
+        // Calcular delta time
+        let current_time = std::time::Instant::now();
+        let delta_time = current_time.duration_since(last_frame_time).as_secs_f32();
+        last_frame_time = current_time;
+
+        // Actualizar enemigos
+        for enemy in &mut enemies {
+            enemy.update(delta_time);
+        }
         
         // Clear framebuffer
         framebuffer.clear();
@@ -270,8 +304,12 @@ fn main() {
             }
         }
 
-        //Renderizar
         render_3D(&mut framebuffer, &maze, block_size, &player, &texture_cache );
+
+        // Renderizar enemigos
+        render_enemies(&mut framebuffer, &player, &enemies, &texture_cache);
+        
+        // Renderizar mapa
         render_maze(&mut fb_map, &maze, map_block_size, &player);
 
         // Dibujar al jugador en el mini mapa
@@ -323,7 +361,6 @@ fn main() {
                 }
             }
         }
-
 
         frame_count += 1;
         if last_time.elapsed().as_secs() >= 1 {
