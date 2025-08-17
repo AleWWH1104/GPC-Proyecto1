@@ -161,7 +161,8 @@ pub fn render_3D(
     maze: &Maze,
     block_size: usize,
     player: &Player,
-    texture_cache: &TextureManager
+    texture_cache: &TextureManager,
+    game_state: &GameState
 ){
     let num_rays = framebuffer.width;
     let hh = framebuffer.height as f32 /2.0;
@@ -176,6 +177,7 @@ pub fn render_3D(
         let intersect = cast_ray(framebuffer, maze, player, block_size, a, false);
         let d = intersect.distance;
         let c = intersect.impact;
+        
         
         // Corregir distancia para evitar efecto "fish-eye"
         let correct_distance = d * angle_diff.cos();
@@ -207,7 +209,45 @@ pub fn render_3D(
             }
         }
     }
+
+    if game_state.flashlight_active {
+
+        let center_x = framebuffer.width as f32 / 2.0;
+        let center_y = framebuffer.height as f32 / 2.0;
+        let radius = framebuffer.height as f32 * 0.2; // 40% del alto (ajustable)
+        let aspect_ratio = framebuffer.width as f32 / framebuffer.height as f32;
+
+        for y in 0..framebuffer.height {
+            for x in 0..framebuffer.width {
+                // Coordenadas normalizadas (-1 a 1) considerando relación de aspecto
+                let nx = (x as f32 - center_x) / (radius * aspect_ratio);
+                let ny = (y as f32 - center_y) / radius;
+
+                // Distancia al centro (corregida por relación de aspecto)
+                let dist_squared = nx * nx + ny * ny;
+
+                if dist_squared > 1.0 { // Fuera del círculo
+                    let idx = (y * framebuffer.width + x) as usize;
+                    framebuffer.color_buffer[idx] = Color::BLACK;
+                }
+                // Opcional: Suavizado de bordes
+                else if dist_squared > 0.7 {
+                    let fade = 1.0 - ((dist_squared - 0.7) / 0.3).min(1.0);
+                    let idx = (y * framebuffer.width + x) as usize;
+                    let color = framebuffer.color_buffer[idx];
+                    framebuffer.color_buffer[idx] = Color::new(
+                        (color.r as f32 * fade) as u8,
+                        (color.g as f32 * fade) as u8,
+                        (color.b as f32 * fade) as u8,
+                        255
+                    );
+                }
+            }
+        }
+    }
 }
+
+
 
 fn render_enemies(
     framebuffer: &mut Framebuffer,
@@ -218,6 +258,11 @@ fn render_enemies(
     for enemy in enemies {
         draw_sprite(framebuffer, &player, &enemy, texture_cache);
     }
+}
+
+pub struct GameState {
+    pub flashlight_active: bool,
+    pub activation_zones: Vec<(f32, f32, f32)>, // (x, y, radius)
 }
 
 fn main() {
@@ -248,11 +293,11 @@ fn main() {
     let mut framebuffer = Framebuffer::new(internal_width as u32, internal_height as u32, background_color);
 
     // Framebuffer para el mapa
-    let mut fb_map = Framebuffer::new(130, 90, background_color);
+    let mut fb_map = Framebuffer::new(200, 90, background_color);
     let map_block_size = 10; // Tamaño más pequeño para el mapa
 
     // Load the maze once before the loop
-    let maze = load_maze("prueba.txt");
+    let maze = load_maze("maze.txt");
 
     //Load player
     let mut player = Player{pos: Vector2::new(150.0,150.0), a: PI/3.0, fov:PI/3.0};
@@ -265,14 +310,28 @@ fn main() {
         Enemy::new(500.0, 100.0, 'e', 4), // Enemigo animado con 4 frames
     ];
 
-    let sky_color = Color::new(15, 4, 36, 255);
-    let floor_color = Color::new(48, 35, 61, 255);
+    let sky_color = Color::new(180, 186, 222, 255);
+    let floor_color = Color::new(66, 74, 55, 255);
 
     let mut frame_count = 0;
     let mut last_time = std::time::Instant::now();
     let mut last_frame_time = std::time::Instant::now();
 
+    let mut game_state = GameState {
+        flashlight_active: false,
+        activation_zones: vec![
+            (500.0, 300.0, 50.0), // Zona 1: x, y, radius
+            (800.0, 600.0, 30.0), // Zona 2
+        ],
+    };
+
     while !window.window_should_close() {
+
+        // Verificar posición del jugador contra las zonas
+        game_state.flashlight_active = game_state.activation_zones.iter().any(|zone| {
+            let (zx, zy, zradius) = zone;
+            (player.pos.x - zx).powi(2) + (player.pos.y - zy).powi(2) <= zradius.powi(2)
+        });
 
         // Calcular delta time
         let current_time = std::time::Instant::now();
@@ -304,7 +363,7 @@ fn main() {
             }
         }
 
-        render_3D(&mut framebuffer, &maze, block_size, &player, &texture_cache );
+        render_3D(&mut framebuffer, &maze, block_size, &player, &texture_cache, &game_state);
 
         // Renderizar enemigos
         render_enemies(&mut framebuffer, &player, &enemies, &texture_cache);
@@ -364,10 +423,10 @@ fn main() {
 
         frame_count += 1;
         if last_time.elapsed().as_secs() >= 1 {
-            println!("FPS: {}", frame_count);
             frame_count = 0;
             last_time = std::time::Instant::now();
         }
+        println!("Posición: {}, {}", player.pos.x, player.pos.y);
 
     }
 }

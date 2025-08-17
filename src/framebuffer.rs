@@ -6,6 +6,7 @@ pub struct Framebuffer {
     pub color_buffer: Vec<Color>,
     pub background_color: Color,
     current_color: Color,
+    pub light_buffer: Vec<f32>
 }
 
 impl Framebuffer {
@@ -19,6 +20,7 @@ impl Framebuffer {
             color_buffer,
             background_color,
             current_color: Color::WHITE,
+            light_buffer: vec![0.0; buffer_size]
         }
     }
 

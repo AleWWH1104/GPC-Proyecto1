@@ -8,6 +8,7 @@ pub struct Intersect {
     pub distance: f32,
     pub impact: char,
     pub tx: usize,
+    pub side: bool
 }
 
 pub fn cast_ray(
@@ -102,5 +103,6 @@ pub fn cast_ray(
         distance,
         impact: wall_type,
         tx: tx.min(127),
+        side
     }
 }
