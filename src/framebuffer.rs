@@ -4,7 +4,7 @@ pub struct Framebuffer {
     pub width: u32,
     pub height: u32,
     pub color_buffer: Vec<Color>,
-    background_color: Color,
+    pub background_color: Color,
     current_color: Color,
 }
 

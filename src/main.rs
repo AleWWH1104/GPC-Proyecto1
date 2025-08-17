@@ -113,10 +113,18 @@ pub fn render_maze(
 
     //draw player
     framebuffer.set_current_color(Color::WHITE);
-    let px = player.pos.x as u32;
-    let py = player.pos.y as u32;
+    let px = (player.pos.x / block_size as f32 * block_size as f32) as u32;
+    let py = (player.pos.y / block_size as f32 * block_size as f32) as u32;
     framebuffer.set_pixel(px, py);
-    
+
+    for x in px.saturating_sub(1)..=px.saturating_add(1) {
+        for y in py.saturating_sub(1)..=py.saturating_add(1) {
+            if x < framebuffer.width && y < framebuffer.height {
+                framebuffer.set_pixel(x, y);
+            }
+        }
+    }
+
     // draw what the player sees
     let num_rays = 3;
     for i in 0..num_rays {
@@ -195,9 +203,9 @@ fn render_enemies(
 }
 
 fn main() {
-    let window_width = 900;
+    let window_width = 1000;
     let window_height =800;
-    let block_size = 65;
+    let block_size = 80;
 
     let (mut window, raylib_thread) = raylib::init()
         .size(window_width, window_height)
@@ -207,7 +215,7 @@ fn main() {
 
     window.set_target_fps(60);
 
-    let internal_width = 450;  
+    let internal_width = 500;  
     let internal_height = 400;
 
     //Load Music once before the loop
@@ -220,7 +228,10 @@ fn main() {
     let background_color = Color::BLACK;
     let mut framebuffer = Framebuffer::new(internal_width as u32, internal_height as u32, background_color);
 
-    framebuffer.set_background_color(background_color);
+    // Framebuffer para el mapa
+    let mut fb_map = Framebuffer::new(130, 90, background_color);
+    let map_block_size = 10; // Tamaño más pequeño para el mapa
+
 
     // Load the maze once before the loop
     let maze = load_maze("prueba.txt");
@@ -241,45 +252,84 @@ fn main() {
         
         // Clear framebuffer
         framebuffer.clear();
+        fb_map.clear();
 
         //Procesar eventos
         process_events(&window, &mut player, block_size, &maze);
 
-        // Renderizar según el modo
-        if window.is_key_down(KeyboardKey::KEY_M){
-            render_maze(&mut framebuffer, &maze, block_size, &player);
-        } else {
-            let half_height = internal_height / 2;
-            let half_size = (half_height * internal_width) as usize;
+        // Renderizar el modo 3D
+        let half_height = internal_height / 2;
+        let half_size = (half_height * internal_width) as usize;
 
-            if half_size <= framebuffer.color_buffer.len() {
-                //Cielo
-                framebuffer.color_buffer[0..half_size].fill(sky_color);
-                // Piso 
-                if half_size < framebuffer.color_buffer.len() {
-                    framebuffer.color_buffer[half_size..].fill(floor_color);
-                }
+        if half_size <= framebuffer.color_buffer.len() {
+            //Cielo
+            framebuffer.color_buffer[0..half_size].fill(sky_color);
+            // Piso 
+            if half_size < framebuffer.color_buffer.len() {
+                framebuffer.color_buffer[half_size..].fill(floor_color);
             }
+        }
 
-            //Renderizar
-            render_3D(&mut framebuffer, &maze, block_size, &player, &texture_cache );
-            //render_enemies(&mut framebuffer, &player, &texture_cache);
+        //Renderizar
+        render_3D(&mut framebuffer, &maze, block_size, &player, &texture_cache );
+        render_maze(&mut fb_map, &maze, map_block_size, &player);
+
+        // Dibujar al jugador en el mini mapa
+        let player_map_x = (player.pos.x / block_size as f32 * map_block_size as f32) as u32;
+        let player_map_y = (player.pos.y / block_size as f32 * map_block_size as f32) as u32;
+
+        fb_map.set_current_color(Color::VIOLET);
+        // Dibujar una cruz para mayor visibilidad
+        for offset in -1..=1 {
+            fb_map.set_pixel(player_map_x.saturating_add_signed(offset), player_map_y);
+            fb_map.set_pixel(player_map_x, player_map_y.saturating_add_signed(offset));
         }
 
         // Swap buffers
         framebuffer.swap_buffers(&mut window, &raylib_thread);
-        
+
+        {
+            //Draw fps
+            let mut d = window.begin_drawing(&raylib_thread);
+            d.draw_fps(10, 10);
+
+            let map_scale = 1.0;
+            let map_display_width = (fb_map.width as f32 * map_scale) as i32;
+            let map_display_height = (fb_map.height as f32 * map_scale) as i32;
+            let map_x = window_width - map_display_width - 20;
+            let map_y = 20;
+
+            d.draw_rectangle(
+                map_x - 5, map_y - 5, 
+                map_display_width + 10, map_display_height + 10,
+                Color::new(0, 0, 0, 180) // Negro semitransparente
+            );
+
+            // Dibujar el mapa
+            for y in 0..fb_map.height {
+                for x in 0..fb_map.width {
+                    let index = (y * fb_map.width + x) as usize;
+                    if index < fb_map.color_buffer.len() {
+                        let color = fb_map.color_buffer[index];
+                        if color != fb_map.background_color {
+                            d.draw_rectangle(
+                                map_x + x as i32,
+                                map_y + y as i32,
+                                1, 1, // Dibujar pixel por pixel
+                                color
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
 
         frame_count += 1;
         if last_time.elapsed().as_secs() >= 1 {
             println!("FPS: {}", frame_count);
             frame_count = 0;
             last_time = std::time::Instant::now();
-        }
-
-        {
-            let mut d = window.begin_drawing(&raylib_thread);
-            d.draw_fps(10, 10); // Posición en esquina superior izquierda
         }
 
     }
