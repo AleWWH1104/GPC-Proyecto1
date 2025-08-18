@@ -2,16 +2,19 @@ use raylib::prelude::*;
 use std::collections::HashMap;
 use std::slice;
 
+use crate::sprites::SpriteType;
+
 pub struct TextureManager {
     images: HashMap<char, Image>,       // Store images for pixel access
     textures: HashMap<char, Texture2D>, // Store GPU textures for rendering
-    pub animations: HashMap<char, (Texture2D, Image, usize)> // (texture, image, frame_count)
+    pub animations: HashMap<SpriteType, (Texture2D, Image, usize)> // (texture, image, frame_count)
 }
 
 impl TextureManager {
     pub fn new(rl: &mut RaylibHandle, thread: &RaylibThread) -> Self {
         let mut images = HashMap::new();
         let mut textures = HashMap::new();
+        let mut animations = HashMap::new();
 
         // Map characters to texture file paths
         let texture_files = vec![
@@ -30,28 +33,42 @@ impl TextureManager {
             textures.insert(ch, texture);
         }
 
-        let mut animations = HashMap::new();
-        
-        // Cargar textura de enemigo animado
-        if let Ok(enemy_image) = Image::load_image("assets/enemy.png") {
-            if let Ok(enemy_texture) = rl.load_texture_from_image(thread, &enemy_image) {
-                images.insert('e', enemy_image.clone()); // También guardamos en images para pixel access
-                animations.insert('e', (enemy_texture, enemy_image, 4)); // 4 frames de animación
+        let animation_files = vec![
+            (SpriteType::creature, "assets/enemy.png", 4),
+            (SpriteType::prize, "assets/prize.png", 1),
+        ];
+
+        for (sprite_type, path, frame_count) in animation_files {
+            if let Ok(image) = Image::load_image(path) {
+                if let Ok(texture) = rl.load_texture_from_image(thread, &image) {
+                    animations.insert(sprite_type, (texture, image, frame_count));
+                }
             }
         }
 
         TextureManager { images, textures, animations }
     }
 
-    pub fn get_pixel_color(&self, ch: char, tx: u32, ty: u32) -> Color {
-        // Primero buscar en animaciones
-        if let Some((_, image, _)) = self.animations.get(&ch) {
+    pub fn get_sprite_texture(&self, sprite_type: &SpriteType) -> Option<&Texture2D> {
+        self.animations.get(sprite_type).map(|(texture, _, _)| texture)
+    }
+
+    pub fn get_sprite_animation_info(&self, sprite_type: &SpriteType) -> Option<(u32, usize)> {
+        self.animations.get(sprite_type)
+            .map(|(_, image, frame_count)| (image.width as u32, *frame_count))
+    }
+
+    pub fn get_sprite_pixel_color(&self, sprite_type: &SpriteType, tx: u32, ty: u32) -> Color {
+        if let Some((_, image, _)) = self.animations.get(sprite_type) {
             let x = tx.min(image.width as u32 - 1) as i32;
             let y = ty.min(image.height as u32 - 1) as i32;
             return get_pixel_color(image, x, y);
         }
-        
-        // Luego buscar en texturas estáticas
+        Color::WHITE
+    }
+
+    // Métodos para texturas estáticas (se mantienen igual)
+    pub fn get_pixel_color(&self, ch: char, tx: u32, ty: u32) -> Color {
         if let Some(image) = self.images.get(&ch) {
             let x = tx.min(image.width as u32 - 1) as i32;
             let y = ty.min(image.height as u32 - 1) as i32;
@@ -62,21 +79,7 @@ impl TextureManager {
     }
 
     pub fn get_texture(&self, ch: char) -> Option<&Texture2D> {
-        // Primero buscar en animaciones
-        if let Some((texture, _, _)) = self.animations.get(&ch) {
-            return Some(texture);
-        }
-        
-        // Luego buscar en texturas estáticas
         self.textures.get(&ch)
-    }
-
-    pub fn get_animation_info(&self, ch: char) -> Option<(u32, usize)> {
-        if let Some((_, image, frame_count)) = self.animations.get(&ch) {
-            Some((image.width as u32, *frame_count))
-        } else {
-            None
-        }
     }
 }
 

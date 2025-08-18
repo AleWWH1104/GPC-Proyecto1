@@ -6,7 +6,8 @@ mod maze;
 mod player;
 mod caster;
 mod textures;
-mod enemy;
+mod sprites;
+mod audio;
 
 use raylib::prelude::*;
 use raylib::core::audio::{ Sound, RaylibAudio };
@@ -18,25 +19,25 @@ use player::{Player,process_events};
 use caster::{cast_ray, Intersect};
 use std::f32::consts::PI;
 use textures::TextureManager;
-use enemy::Enemy;
+use sprites::Sprite;
 use raylib::ffi::TraceLogLevel;
-
+use audio::AudioSystem;
+use crate::sprites::SpriteType;
 
 const TRANSPARENT_COLOR: Color = Color::new(0, 0, 0, 0);
-
 
 fn draw_sprite(
     framebuffer: &mut Framebuffer,
     player: &Player,
-    enemy: &Enemy,
+    sprite: &Sprite,
     texture_manager: &TextureManager
 ) {
-    if !enemy.is_alive {
+    if !sprite.is_alive {
         return;
     }
 
     // Calcular ángulo del sprite relativo al jugador
-    let sprite_a = (enemy.pos.y - player.pos.y).atan2(enemy.pos.x - player.pos.x);
+    let sprite_a = (sprite.pos.y - player.pos.y).atan2(sprite.pos.x - player.pos.x);
     let mut angle_diff = sprite_a - player.a;
     
     // Normalizar el ángulo
@@ -53,7 +54,7 @@ fn draw_sprite(
     }
 
     // Calcular distancia al sprite
-    let sprite_d = ((player.pos.x - enemy.pos.x).powi(2) + (player.pos.y - enemy.pos.y).powi(2)).sqrt();
+    let sprite_d = ((player.pos.x - sprite.pos.x).powi(2) + (player.pos.y - sprite.pos.y).powi(2)).sqrt();
 
     // Culling por distancia (plano cercano y lejano)
     if sprite_d < 30.0 || sprite_d > 600.0 {
@@ -75,8 +76,21 @@ fn draw_sprite(
     let start_y = (screen_height / 2.0 - sprite_size / 2.0).max(0.0) as i32;
     let end_y = (screen_height / 2.0 + sprite_size / 2.0).min(screen_height) as i32;
 
+    // Obtener información de la animación usando SpriteType
+    let (_, image, total_frames) = match texture_manager.animations.get(&sprite.sprite_type) {
+        Some(data) => data,
+        None => {
+            eprintln!("Missing animation for sprite type: {:?}", sprite.sprite_type);
+            return;
+        }
+    };
+
+    let frame_width = image.width as u32 / *total_frames as u32;
+    let frame_height = image.height as u32;
+
     // Obtener coordenadas del frame actual
-    let (frame_x, frame_y, frame_width, frame_height) = enemy.get_frame_coords(128 * enemy.frame_count as u32);
+    let frame_x = sprite.current_frame as u32 * frame_width;
+    let frame_y = 0;
 
     // Dibujar el sprite
     for x in start_x..end_x {
@@ -88,7 +102,7 @@ fn draw_sprite(
             let final_tx = (frame_x as f32 + tex_x) as u32;
             let final_ty = (frame_y as f32 + tex_y) as u32;
 
-            let color = texture_manager.get_pixel_color(enemy.texture_key, final_tx, final_ty);
+             let color = texture_manager.get_sprite_pixel_color(&sprite.sprite_type, final_tx, final_ty);
             
             // Solo dibujar píxeles no transparentes
             if color.a > 0 && color != TRANSPARENT_COLOR {
@@ -213,8 +227,8 @@ pub fn render_3D(
     if game_state.flashlight_active {
 
         let center_x = framebuffer.width as f32 / 2.0;
-        let center_y = framebuffer.height as f32 / 2.0;
-        let radius = framebuffer.height as f32 * 0.2; // 40% del alto (ajustable)
+        let center_y = framebuffer.height as f32/ 2.0 ;
+        let radius = framebuffer.height as f32 * 0.2;
         let aspect_ratio = framebuffer.width as f32 / framebuffer.height as f32;
 
         for y in 0..framebuffer.height {
@@ -249,20 +263,22 @@ pub fn render_3D(
 
 
 
-fn render_enemies(
+fn render_sprites(
     framebuffer: &mut Framebuffer,
     player: &Player,
-    enemies: &[Enemy],
+    sprites: &[Sprite],
     texture_cache: &TextureManager,
 ) {
-    for enemy in enemies {
-        draw_sprite(framebuffer, &player, &enemy, texture_cache);
+    for sprite in sprites {
+        draw_sprite(framebuffer, &player, &sprite, texture_cache);
     }
 }
 
 pub struct GameState {
     pub flashlight_active: bool,
-    pub activation_zones: Vec<(f32, f32, f32)>, // (x, y, radius)
+    pub activation_min_x: f32, // 327
+    pub activation_min_y: f32,
+    pub in_special_zone: bool,
 }
 
 fn main() {
@@ -284,16 +300,30 @@ fn main() {
 
     //Load Music once before the loop
     let mut audio = RaylibAudio::init_audio_device();
-    let music_forest = Sound::load_sound("musicforest.mp3") .expect("No se pudo cargar la música");
-    
-    audio.play_sound(&music_forest);
-    audio.set_sound_volume(&music_forest, 0.5);
+    let mut audio_system = AudioSystem::new(&mut audio);
+   
+    let background_music = Sound::load_sound("assets/sounds/music1.mp3").expect("No se pudo cargar la música");
+    let zone_music = Sound::load_sound("assets/sounds/music2.mp3").expect("No se pudo cargar la música");
 
+    //Efectos especiales
+    audio_system.load_sound("creature_whisper", "assets/sounds/creature.mp3");
+    audio_system.load_sound("shimmering", "assets/sounds/shimmering.mp3");
+
+    //Iniciar musica
+    audio_system.audio.play_sound(&background_music);
+
+    let mut game_state = GameState {
+        flashlight_active: false,
+        activation_min_x: 327.0,
+        activation_min_y: 160.0,
+        in_special_zone: false,
+    };
+    
     let background_color = Color::BLACK;
     let mut framebuffer = Framebuffer::new(internal_width as u32, internal_height as u32, background_color);
 
     // Framebuffer para el mapa
-    let mut fb_map = Framebuffer::new(200, 90, background_color);
+    let mut fb_map = Framebuffer::new(150, 130, background_color);
     let map_block_size = 10; // Tamaño más pequeño para el mapa
 
     // Load the maze once before the loop
@@ -305,42 +335,43 @@ fn main() {
     //Load textures
     let texture_cache = TextureManager::new(&mut window, &raylib_thread);
 
-    //Crear enemigos
-    let mut enemies = vec![
-        Enemy::new(500.0, 100.0, 'e', 4), // Enemigo animado con 4 frames
+    //Crear sprites
+    let mut sprites = vec![
+        Sprite::new(500.0, 100.0, 'C', 4, SpriteType::creature), 
+        Sprite::new(850.0, 800.0, 'P', 1, SpriteType::prize),
     ];
 
-    let sky_color = Color::new(180, 186, 222, 255);
-    let floor_color = Color::new(66, 74, 55, 255);
+    let sky_color = Color::new(126, 104, 166, 255);
+    let floor_color = Color::new(45, 38, 59, 255);
 
     let mut frame_count = 0;
     let mut last_time = std::time::Instant::now();
     let mut last_frame_time = std::time::Instant::now();
 
-    let mut game_state = GameState {
-        flashlight_active: false,
-        activation_zones: vec![
-            (500.0, 300.0, 50.0), // Zona 1: x, y, radius
-            (800.0, 600.0, 30.0), // Zona 2
-        ],
-    };
 
     while !window.window_should_close() {
 
-        // Verificar posición del jugador contra las zonas
-        game_state.flashlight_active = game_state.activation_zones.iter().any(|zone| {
-            let (zx, zy, zradius) = zone;
-            (player.pos.x - zx).powi(2) + (player.pos.y - zy).powi(2) <= zradius.powi(2)
-        });
+        game_state.in_special_zone = player.pos.x >= game_state.activation_min_x 
+                          && player.pos.y >= game_state.activation_min_y;
+        
+        game_state.flashlight_active = game_state.in_special_zone;
+
+        //Inicializar funciones de musica
+        audio_system.play_proximity_sounds(player.pos, &sprites);
+        audio_system.update_zone_music(
+            game_state.in_special_zone,
+            &background_music,
+            &zone_music
+        );
 
         // Calcular delta time
         let current_time = std::time::Instant::now();
         let delta_time = current_time.duration_since(last_frame_time).as_secs_f32();
         last_frame_time = current_time;
 
-        // Actualizar enemigos
-        for enemy in &mut enemies {
-            enemy.update(delta_time);
+        // Actualizar sprite
+        for sprite in &mut sprites {
+            sprite.update(delta_time);
         }
         
         // Clear framebuffer
@@ -365,8 +396,8 @@ fn main() {
 
         render_3D(&mut framebuffer, &maze, block_size, &player, &texture_cache, &game_state);
 
-        // Renderizar enemigos
-        render_enemies(&mut framebuffer, &player, &enemies, &texture_cache);
+        // Renderizar sprites
+        render_sprites(&mut framebuffer, &player, &sprites, &texture_cache);
         
         // Renderizar mapa
         render_maze(&mut fb_map, &maze, map_block_size, &player);
