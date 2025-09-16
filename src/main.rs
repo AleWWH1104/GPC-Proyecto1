@@ -53,16 +53,15 @@ fn draw_sprite(
         return;
     }
 
-    // Calcular distancia al sprite
-    let sprite_d = ((player.pos.x - sprite.pos.x).powi(2) + (player.pos.y - sprite.pos.y).powi(2)).sqrt();
+    let sprite_d = (player.pos.x - sprite.pos.x).hypot(player.pos.y - sprite.pos.y);
 
-    // Culling por distancia (plano cercano y lejano)
-    if sprite_d < 30.0 || sprite_d > 600.0 {
-        return;
-    }
+    // Distancia perpendicular (para z-buffer)
+    let sprite_perp = (sprite_d * angle_diff.cos().abs()).max(0.0001);
 
     let screen_height = framebuffer.height as f32;
     let screen_width = framebuffer.width as f32;
+
+    if sprite_perp < 30.0 || sprite_perp > 600.0 { return; }
 
     // Calcular tamaño del sprite en pantalla
     let sprite_size = (screen_height / sprite_d) * 70.0;
@@ -94,6 +93,13 @@ fn draw_sprite(
 
     // Dibujar el sprite
     for x in start_x..end_x {
+        let xi = x.clamp(0, framebuffer.width as i32 - 1) as usize;
+
+        // Si el sprite en esta columna está detrás del muro, NO pintes
+        if sprite_perp >= framebuffer.depth_buffer[xi] {
+            continue;
+        }
+
         for y in start_y..end_y {
             // Mapear coordenadas de pantalla a coordenadas de textura
             let tex_x = ((x - start_x) as f32 / (end_x - start_x) as f32) * frame_width as f32;
@@ -102,7 +108,7 @@ fn draw_sprite(
             let final_tx = (frame_x as f32 + tex_x) as u32;
             let final_ty = (frame_y as f32 + tex_y) as u32;
 
-             let color = texture_manager.get_sprite_pixel_color(&sprite.sprite_type, final_tx, final_ty);
+            let color = texture_manager.get_sprite_pixel_color(&sprite.sprite_type, final_tx, final_ty);
             
             // Solo dibujar píxeles no transparentes
             if color.a > 0 && color != TRANSPARENT_COLOR {
@@ -195,6 +201,8 @@ pub fn render_3D(
         
         // Corregir distancia para evitar efecto "fish-eye"
         let correct_distance = d * angle_diff.cos();
+
+        framebuffer.depth_buffer[i as usize] = correct_distance.max(0.0001);
         
         let stake_height = (hh / correct_distance) * 100.0;
         let half_stake_height = stake_height / 2.0;
@@ -269,8 +277,15 @@ fn render_sprites(
     sprites: &[Sprite],
     texture_cache: &TextureManager,
 ) {
-    for sprite in sprites {
-        draw_sprite(framebuffer, &player, &sprite, texture_cache);
+    let mut ordered: Vec<&Sprite> = sprites.iter().collect();
+    ordered.sort_by(|a, b| {
+        let da = (player.pos.x - a.pos.x).hypot(player.pos.y - a.pos.y);
+        let db = (player.pos.x - b.pos.x).hypot(player.pos.y - b.pos.y);
+        db.partial_cmp(&da).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    for sprite in ordered {
+        draw_sprite(framebuffer, player, sprite, texture_cache);
     }
 }
 
@@ -338,7 +353,7 @@ fn main() {
     //Crear sprites
     let mut sprites = vec![
         Sprite::new(500.0, 100.0, 'C', 4, SpriteType::creature), 
-        Sprite::new(850.0, 800.0, 'P', 1, SpriteType::prize),
+        Sprite::new(850.0, 875.0, 'P', 1, SpriteType::prize),
     ];
 
     let sky_color = Color::new(126, 104, 166, 255);

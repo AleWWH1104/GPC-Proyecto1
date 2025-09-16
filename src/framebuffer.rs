@@ -6,7 +6,8 @@ pub struct Framebuffer {
     pub color_buffer: Vec<Color>,
     pub background_color: Color,
     current_color: Color,
-    pub light_buffer: Vec<f32>
+    pub light_buffer: Vec<f32>,
+    pub depth_buffer: Vec<f32>, 
 }
 
 impl Framebuffer {
@@ -20,13 +21,15 @@ impl Framebuffer {
             color_buffer,
             background_color,
             current_color: Color::WHITE,
-            light_buffer: vec![0.0; buffer_size]
+            light_buffer: vec![0.0; buffer_size],
+            depth_buffer: vec![f32::MAX; width as usize], 
         }
     }
 
     pub fn clear(&mut self) {
         // Optimización: usar fill es mucho más rápido
         self.color_buffer.fill(self.background_color);
+        self.depth_buffer.fill(f32::MAX);
     }
 
     #[inline(always)]
