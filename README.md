@@ -1,4 +1,4 @@
-# Raycaster Laberinto 2.5D (Rust + raylib)
+# Raycaster Laberinto
 
 Proyecto en Rust que renderiza un laberinto estilo “raycasting”: paredes, sprites, colisiones, pantalla de éxito y audio (música de fondo y sonidos por proximidad).
 
