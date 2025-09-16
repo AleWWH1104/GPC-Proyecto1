@@ -10,6 +10,7 @@ mod sprites;
 mod audio;
 
 use raylib::prelude::*;
+use raylib::text::measure_text; 
 use raylib::core::audio::{ Sound, RaylibAudio };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -289,11 +290,21 @@ fn render_sprites(
     }
 }
 
+#[derive(PartialEq, Eq)]
+enum Mode {
+    Playing,
+    Success,
+}
+
 pub struct GameState {
     pub flashlight_active: bool,
     pub activation_min_x: f32, // 327
     pub activation_min_y: f32,
     pub in_special_zone: bool,
+
+    pub mode: Mode,
+    pub goal_center: Vector2,  // cerca del sprite prize
+    pub goal_radius: f32,  
 }
 
 fn main() {
@@ -319,10 +330,11 @@ fn main() {
    
     let background_music = Sound::load_sound("assets/sounds/music1.mp3").expect("No se pudo cargar la música");
     let zone_music = Sound::load_sound("assets/sounds/music2.mp3").expect("No se pudo cargar la música");
-
+   
     //Efectos especiales
     audio_system.load_sound("creature_whisper", "assets/sounds/creature.mp3");
     audio_system.load_sound("shimmering", "assets/sounds/shimmering.mp3");
+    //audio_system.load_sound("success", "assets/sounds/jingle.mp3");
 
     //Iniciar musica
     audio_system.audio.play_sound(&background_music);
@@ -332,6 +344,9 @@ fn main() {
         activation_min_x: 327.0,
         activation_min_y: 160.0,
         in_special_zone: false,
+        mode: Mode::Playing,
+        goal_center: Vector2::new(850.0, 875.0), // objetivo
+        goal_radius: 140.0,
     };
     
     let background_color = Color::BLACK;
@@ -394,7 +409,19 @@ fn main() {
         fb_map.clear();
 
         //Procesar eventos
-        process_events(&window, &mut player, block_size, &maze);
+        if game_state.mode == Mode::Playing {
+            process_events(&window, &mut player, block_size, &maze);
+        }
+
+        if game_state.mode == Mode::Playing {
+            let dx = player.pos.x - game_state.goal_center.x;
+            let dy = player.pos.y - game_state.goal_center.y;
+            let dist2 = dx*dx + dy*dy;
+
+            if dist2 <= game_state.goal_radius * game_state.goal_radius {
+                game_state.mode = Mode::Success;
+            }
+        }
 
         // Renderizar el modo 3D
         let half_height = internal_height / 2;
@@ -464,6 +491,17 @@ fn main() {
                         }
                     }
                 }
+            }
+            if game_state.mode == Mode::Success {
+                // Cubrir toda la ventana con un fondo semitransparente
+                d.draw_rectangle(0, 0, window_width, window_height, Color::new(0, 0, 0, 200));
+
+                // Texto centrado
+                let tw = measure_text("EXITO", 40);
+                let tw2 = measure_text("Has llegado a la meta.", 20);
+
+                d.draw_text("¡EXITO!", (window_width - tw) / 2, window_height / 2 - 40, 40, Color::RAYWHITE);
+                d.draw_text("Has llegado a la meta.", (window_width - tw2) / 2, window_height / 2 + 10, 20, Color::LIGHTGRAY);
             }
         }
 
