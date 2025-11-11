@@ -44,4 +44,8 @@ Dentro de la raíz del proyecto (donde está `Cargo.toml`):
 
 ```bash
 cargo run
+```
+
+## Video demo del juego
+https://youtu.be/LncLoEckh_Y
 
